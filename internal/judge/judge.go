@@ -148,7 +148,12 @@ func (c *Client) once(ctx context.Context, body []byte) (content []byte, retryab
 		return nil, true, fmt.Errorf("чтение ответа LLM: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		// Шлюзы вроде opencode zen умеют отдавать разовый 400 с телом-эхом
+		// запроса, поэтому 400 тоже повторяем: настоящая несовместимая схема
+		// провалится на всех трёх попытках и всплывёт на старте.
+		retryable := resp.StatusCode == http.StatusBadRequest ||
+			resp.StatusCode == http.StatusTooManyRequests ||
+			resp.StatusCode >= 500
 		return nil, retryable, fmt.Errorf("LLM ответил %d: %s", resp.StatusCode, short(raw))
 	}
 

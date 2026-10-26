@@ -131,7 +131,7 @@ func TestEvaluateRetriesServerError(t *testing.T) {
 	}
 }
 
-func TestEvaluateDoesNotRetryBadRequest(t *testing.T) {
+func TestEvaluateFailsAfterRepeatedBadRequest(t *testing.T) {
 	var calls atomic.Int32
 	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
@@ -144,8 +144,27 @@ func TestEvaluateDoesNotRetryBadRequest(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "response_format unsupported") {
 		t.Errorf("ошибка без тела ответа: %v", err)
 	}
-	if got := calls.Load(); got != 1 {
-		t.Errorf("запросов = %d, want 1", got)
+	if got := calls.Load(); got != attempts {
+		t.Errorf("запросов = %d, want %d", got, attempts)
+	}
+}
+
+func TestEvaluateRetriesTransientBadRequest(t *testing.T) {
+	var calls atomic.Int32
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"model":"deepseek-v4.1-flash"}`))
+			return
+		}
+		verdictResponse(validVerdict)(w, r)
+	})
+
+	if _, err := client.Evaluate(t.Context(), "текст"); err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("запросов = %d, want 2", got)
 	}
 }
 

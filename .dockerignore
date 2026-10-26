@@ -1,0 +1,7 @@
+.git
+.gitignore
+data
+.env
+keywords.txt
+run.sh
+docs

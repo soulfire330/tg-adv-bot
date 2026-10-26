@@ -1,0 +1,19 @@
+services:
+  app:
+    build: .
+    image: tg-adv-bot
+    command: ["run"]
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+      - ./keywords.txt:/app/keywords.txt:ro
+      - ./prompt.md:/app/prompt.md:ro
+    user: "${PUID:-1000}:${PGID:-1000}"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

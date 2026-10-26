@@ -1,0 +1,10 @@
+# секреты и личные настройки
+.env
+keywords.txt
+
+# данные сервиса: сессия MTProto и state
+data/
+
+# сборка
+/tg-adv-bot
+/app

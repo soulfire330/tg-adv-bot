@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -100,6 +101,16 @@ func serve(
 	}
 
 	return client.Run(ctx, func(ctx context.Context) error {
+		// Без сессии gotd молча переподключается вечно, поэтому проверяем явно.
+		status, err := client.Auth().Status(ctx)
+		if err != nil {
+			return fmt.Errorf("проверка сессии: %w", err)
+		}
+		if !status.Authorized {
+			return errors.New("сессия не авторизована — выполни ./run.sh login")
+		}
+		log.Info("авторизован", "user", status.User.Username)
+
 		api := client.API()
 		channel, err := tg.ResolveChannel(ctx, api, cfg.Channel)
 		if err != nil {

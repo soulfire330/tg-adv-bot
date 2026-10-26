@@ -3,18 +3,32 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-export PUID="$(id -u)" PGID="$(id -g)"
+# Под sudo compose должен работать от твоего uid, а не от root:
+# иначе ./data окажется root-овым и контейнер не сможет писать в него.
+export PUID="${SUDO_UID:-$(id -u)}"
+export PGID="${SUDO_GID:-$(id -g)}"
+
+own() {
+  if [ "$(id -u)" -eq 0 ]; then chown -R "$PUID:$PGID" "$@"; fi
+}
 
 case "${1:-up}" in
   up)
     if [ ! -f .env ]; then
       cp .env.example .env
+      own .env
       echo "→ .env создан. Заполни TG_API_ID, TG_API_HASH, TG_PHONE, TG_RECIPIENT и LLM_*, потом запусти снова."
       exit 1
     fi
-    [ -f keywords.txt ] || cp keywords.txt.example keywords.txt
+    if [ ! -f keywords.txt ]; then
+      cp keywords.txt.example keywords.txt
+      own keywords.txt
+    fi
     mkdir -p data
-    docker compose up -d --build
+    own data
+    # Без --build: собирает только если образа нет, иначе берёт готовый
+    # (например, залитый с другой машины через docker save | docker load).
+    docker compose up -d
     if [ ! -f data/session.json ]; then
       echo
       echo "Сессии нет — нужен одноразовый вход с кодом из Telegram и 2FA:"

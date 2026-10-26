@@ -31,6 +31,22 @@ $EDITOR prompt.md       # критерий отбора
 
 Первый запуск разбирает последние `BACKFILL=10` постов, дальше — только новые.
 
+Если docker доступен только через root — запускай `sudo ./run.sh`: скрипт возьмёт
+твой `uid/gid` из `SUDO_UID`/`SUDO_GID`, чтобы `./data` не оказался root-овым.
+
+## Обновление на VPS без локальной сборки
+
+Сборка требует ~5 ГБ RAM (компиляция `gotd/td/tg` — 3126 файлов в одном пакете),
+поэтому на слабом VPS её лучше не делать. Собрать и залить готовый образ:
+
+```bash
+docker build -t tg-adv-bot .
+docker save tg-adv-bot | gzip -1 | ssh myboy 'gunzip | sudo docker load'
+```
+
+На сервере `./run.sh` (или `sudo ./run.sh`) подхватит загруженный образ:
+`up` без `--build` собирает только если образа нет.
+
 ## Переменные
 
 Все — в `.env.example`. Ключевое: `TG_CHANNEL` (группа), `TG_RECIPIENT` (`@username`

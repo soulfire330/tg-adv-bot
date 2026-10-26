@@ -25,6 +25,7 @@ type Config struct {
 	LLMBaseURL   string
 	LLMAPIKey    string
 	LLMModel     string
+	LLMHeaders   map[string]string
 	Proxy        string
 	Backfill     int
 	Interval     time.Duration
@@ -61,6 +62,7 @@ func Load() (Config, error) {
 		LLMBaseURL:   os.Getenv("LLM_BASE_URL"),
 		LLMAPIKey:    os.Getenv("LLM_API_KEY"),
 		LLMModel:     os.Getenv("LLM_MODEL"),
+		LLMHeaders:   parseHeaders(os.Getenv("LLM_HEADERS")),
 		Proxy:        os.Getenv("SOCKS5_PROXY"),
 		Backfill:     backfill,
 		Interval:     interval,
@@ -152,4 +154,18 @@ func envDuration(name string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s: %w", name, err)
 	}
 	return v, nil
+}
+
+// parseHeaders разбирает "name: value; name2: value2" из LLM_HEADERS.
+func parseHeaders(raw string) map[string]string {
+	headers := make(map[string]string)
+	for _, pair := range strings.Split(raw, ";") {
+		name, value, ok := strings.Cut(strings.TrimSpace(pair), ":")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			continue
+		}
+		headers[name] = strings.TrimSpace(value)
+	}
+	return headers
 }

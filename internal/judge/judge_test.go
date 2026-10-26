@@ -17,7 +17,13 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	client := New(server.URL, "test-key", "test-model", "критерий", server.Client())
+	client := New(Config{
+		BaseURL: server.URL,
+		Key:     "test-key",
+		Model:   "test-model",
+		Prompt:  "критерий",
+		HTTP:    server.Client(),
+	})
 	client.backoff = time.Millisecond
 	return client
 }
@@ -38,10 +44,12 @@ func TestEvaluateSendsStrictJSONSchema(t *testing.T) {
 		captured request
 		path     string
 		auth     string
+		agent    string
 	)
 	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
 		auth = r.Header.Get("Authorization")
+		agent = r.Header.Get("User-Agent")
 		_ = json.NewDecoder(r.Body).Decode(&captured)
 		verdictResponse(validVerdict)(w, r)
 	})
@@ -59,6 +67,9 @@ func TestEvaluateSendsStrictJSONSchema(t *testing.T) {
 	}
 	if auth != "Bearer test-key" {
 		t.Errorf("Authorization = %q", auth)
+	}
+	if agent != userAgent {
+		t.Errorf("User-Agent = %q, want %q", agent, userAgent)
 	}
 	if captured.Model != "test-model" {
 		t.Errorf("model = %q", captured.Model)
@@ -173,5 +184,37 @@ func TestProbe(t *testing.T) {
 	})
 	if err := broken.Probe(t.Context()); err == nil {
 		t.Fatal("ожидали ошибку probe")
+	}
+}
+
+func TestSendsConfiguredHeaders(t *testing.T) {
+	var session, agent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session = r.Header.Get("x-opencode-session")
+		agent = r.Header.Get("User-Agent")
+		verdictResponse(validVerdict)(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	client := New(Config{
+		BaseURL: server.URL,
+		Key:     "test-key",
+		Model:   "test-model",
+		Prompt:  "критерий",
+		Headers: map[string]string{
+			"x-opencode-session": "86a09657-3fbe-4448-abf8-8cae0cea360c",
+			"User-Agent":         "custom/2",
+		},
+		HTTP: server.Client(),
+	})
+
+	if _, err := client.Evaluate(t.Context(), "текст"); err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if session != "86a09657-3fbe-4448-abf8-8cae0cea360c" {
+		t.Errorf("x-opencode-session = %q", session)
+	}
+	if agent != "custom/2" {
+		t.Errorf("User-Agent = %q, want custom/2", agent)
 	}
 }

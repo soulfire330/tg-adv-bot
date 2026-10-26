@@ -87,7 +87,14 @@ func serve(
 		return fmt.Errorf("промпт %s: %w", cfg.PromptPath, err)
 	}
 
-	llm := judge.New(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, string(prompt), httpClient(dial))
+	llm := judge.New(judge.Config{
+		BaseURL: cfg.LLMBaseURL,
+		Key:     cfg.LLMAPIKey,
+		Model:   cfg.LLMModel,
+		Prompt:  string(prompt),
+		Headers: cfg.LLMHeaders,
+		HTTP:    httpClient(dial),
+	})
 	if err := llm.Probe(ctx); err != nil {
 		return err
 	}

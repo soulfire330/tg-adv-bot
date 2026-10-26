@@ -18,6 +18,7 @@ const (
 	backoffBase    = time.Second
 	maxTextRunes   = 4000
 	maxResponseRaw = 2048
+	userAgent      = "tg-adv-bot/1.0"
 )
 
 // Verdict — единственный источник решения о совпадении.
@@ -26,24 +27,38 @@ type Verdict struct {
 	Reason  string `json:"reason"`
 }
 
+// Config — параметры одного LLM-эндпоинта.
+type Config struct {
+	BaseURL string
+	Key     string
+	Model   string
+	Prompt  string
+	// Headers добавляются к каждому запросу: шлюзы вроде opencode zen
+	// требуют x-opencode-session.
+	Headers map[string]string
+	HTTP    *http.Client
+}
+
 // Client держит настройки одного LLM-эндпоинта и промпт-критерий.
 type Client struct {
 	url     string
 	key     string
 	model   string
 	prompt  string
+	headers map[string]string
 	http    *http.Client
 	backoff time.Duration
 }
 
-// New собирает клиент: baseURL — корень API без /chat/completions.
-func New(baseURL, key, model, prompt string, hc *http.Client) *Client {
+// New собирает клиент: BaseURL — корень API без /chat/completions.
+func New(cfg Config) *Client {
 	return &Client{
-		url:     strings.TrimSuffix(baseURL, "/") + "/chat/completions",
-		key:     key,
-		model:   model,
-		prompt:  prompt,
-		http:    hc,
+		url:     strings.TrimSuffix(cfg.BaseURL, "/") + "/chat/completions",
+		key:     cfg.Key,
+		model:   cfg.Model,
+		prompt:  cfg.Prompt,
+		headers: cfg.Headers,
+		http:    cfg.HTTP,
 		backoff: backoffBase,
 	}
 }
@@ -117,6 +132,10 @@ func (c *Client) once(ctx context.Context, body []byte) (content []byte, retryab
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.key)
+	req.Header.Set("User-Agent", userAgent)
+	for name, value := range c.headers {
+		req.Header.Set(name, value)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

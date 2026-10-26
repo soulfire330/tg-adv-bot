@@ -52,6 +52,11 @@ docker save tg-adv-bot | gzip -1 | ssh myboy 'gunzip | sudo docker load'
 Все — в `.env.example`. Ключевое: `TG_CHANNEL` (группа), `TG_RECIPIENT` (`@username`
 или `me`), `LLM_BASE_URL`/`LLM_MODEL`, `SOCKS5_PROXY` (socks5h для Telegram и LLM).
 
+Шлюзы вроде opencode zen требуют заголовок сессии, иначе 400 `MissingSessionID`:
+`LLM_HEADERS="x-opencode-session: <любой стабильный UUID>"`. Несколько заголовков —
+через `;`. Сервис проверяет эндпоинт probe-запросом при старте и скажет, если схема
+или заголовки не те.
+
 ## Разработка
 
 ```bash

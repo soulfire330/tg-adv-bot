@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -62,5 +63,21 @@ func TestValidateRunRequiresLLM(t *testing.T) {
 	cfg.LLMModel = "qwen"
 	if err := cfg.ValidateRun(); err != nil {
 		t.Errorf("заполненный конфиг не прошёл проверку: %v", err)
+	}
+}
+
+func TestLoadHeaders(t *testing.T) {
+	t.Setenv("TG_API_ID", "1")
+	t.Setenv("TG_API_HASH", "hash")
+	t.Setenv("TG_PHONE", "+1")
+	t.Setenv("LLM_HEADERS", "x-opencode-session: abc-123; x-foo:bar; мусор-без-двоеточия")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := map[string]string{"x-opencode-session": "abc-123", "x-foo": "bar"}
+	if !reflect.DeepEqual(cfg.LLMHeaders, want) {
+		t.Errorf("LLMHeaders = %v, want %v", cfg.LLMHeaders, want)
 	}
 }

@@ -42,6 +42,12 @@ func run() error {
 	}
 	log := newLogger(cfg.LogLevel)
 
+	// gotd пишет session.json обычным WriteFile без создания каталога:
+	// без этой строки сервис молча уходит в бесконечный реконнект.
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+		return fmt.Errorf("DATA_DIR %s: %w", cfg.DataDir, err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

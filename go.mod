@@ -3,6 +3,7 @@ module tg-adv-bot
 go 1.27
 
 require (
+	github.com/gotd/log v0.1.0
 	github.com/gotd/td v0.163.0
 	golang.org/x/net v0.61.0
 )
@@ -21,7 +22,6 @@ require (
 	github.com/go-faster/yaml v0.4.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gotd/ige v0.3.0 // indirect
-	github.com/gotd/log v0.1.0 // indirect
 	github.com/gotd/neo v0.1.5 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect

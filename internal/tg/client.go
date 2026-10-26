@@ -3,8 +3,10 @@ package tg
 
 import (
 	"context"
+	"log/slog"
 	"net"
 
+	"github.com/gotd/log/logslog"
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/dcs"
@@ -16,6 +18,7 @@ type Options struct {
 	APIHash string
 	Session string
 	Dial    func(ctx context.Context, network, addr string) (net.Conn, error)
+	Log     *slog.Logger
 }
 
 // NewClient собирает MTProto-клиент: сессия на диске, апдейты не нужны —
@@ -24,6 +27,7 @@ func NewClient(opts Options) *telegram.Client {
 	options := telegram.Options{
 		SessionStorage: &session.FileStorage{Path: opts.Session},
 		NoUpdates:      true,
+		Logger:         logslog.New(opts.Log),
 	}
 	if opts.Dial != nil {
 		options.Resolver = dcs.Plain(dcs.PlainOptions{Dial: opts.Dial})

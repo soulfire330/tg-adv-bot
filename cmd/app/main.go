@@ -54,6 +54,7 @@ func run() error {
 		APIHash: cfg.APIHash,
 		Session: cfg.SessionPath(),
 		Dial:    dial,
+		Log:     log,
 	})
 
 	switch command(os.Args) {

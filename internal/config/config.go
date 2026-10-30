@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	defaultBackfill = 10
-	defaultInterval = 30 * time.Second
-	defaultDataDir  = "/data"
+	defaultBackfill  = 10
+	defaultInterval  = 30 * time.Second
+	defaultDataDir   = "/data"
+	defaultDedupSize = 1000
 )
 
 // Config — всё, что приходит из окружения.
@@ -28,6 +29,7 @@ type Config struct {
 	LLMHeaders   map[string]string
 	Proxy        string
 	Backfill     int
+	DedupSize    int
 	Interval     time.Duration
 	DataDir      string
 	LogLevel     string
@@ -52,6 +54,13 @@ func Load() (Config, error) {
 	if backfill < 1 {
 		backfill = 1
 	}
+	dedupSize, err := envInt("DEDUP_SIZE", defaultDedupSize)
+	if err != nil {
+		return Config{}, err
+	}
+	if dedupSize < 0 {
+		dedupSize = 0
+	}
 
 	cfg := Config{
 		APIID:        apiID,
@@ -65,6 +74,7 @@ func Load() (Config, error) {
 		LLMHeaders:   parseHeaders(os.Getenv("LLM_HEADERS")),
 		Proxy:        os.Getenv("SOCKS5_PROXY"),
 		Backfill:     backfill,
+		DedupSize:    dedupSize,
 		Interval:     interval,
 		DataDir:      env("DATA_DIR", defaultDataDir),
 		LogLevel:     env("LOG_LEVEL", "info"),
@@ -123,6 +133,12 @@ func (c Config) SessionPath() string {
 // StatePath — файл с id последнего обработанного поста.
 func (c Config) StatePath() string {
 	return filepath.Join(c.DataDir, "state.json")
+}
+
+// DedupPath — файл с хешами пересланных текстов: отдельно от state, чтобы тот
+// оставался одной строкой.
+func (c Config) DedupPath() string {
+	return filepath.Join(c.DataDir, "dedup.json")
 }
 
 func env(name, fallback string) string {

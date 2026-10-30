@@ -4,7 +4,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,22 +40,32 @@ type Store interface {
 	Save(state.State) error
 }
 
+// Seen хранит хеши уже пересланных текстов отдельным файлом.
+type Seen interface {
+	Load() ([]uint64, error)
+	Save([]uint64) error
+}
+
 // Deps — всё, чем сервис пользуется снаружи.
 type Deps struct {
-	Source   Source
-	Judge    Judge
-	Forward  Forwarder
-	Store    Store
-	Keywords []string
-	Backfill int
-	Interval time.Duration
-	Log      *slog.Logger
+	Source    Source
+	Judge     Judge
+	Forward   Forwarder
+	Store     Store
+	Seen      Seen
+	Keywords  []string
+	Backfill  int
+	DedupSize int
+	Interval  time.Duration
+	Log       *slog.Logger
 }
 
 type Service struct {
 	deps    Deps
 	lastID  int
+	seen    []uint64
 	started bool
+	ready   bool
 }
 
 func New(deps Deps) *Service {
@@ -62,11 +74,9 @@ func New(deps Deps) *Service {
 
 // Run опрашивает группу, пока не отменят контекст. Ошибки опроса не фатальны.
 func (s *Service) Run(ctx context.Context) error {
-	st, err := s.deps.Store.Load()
-	if err != nil {
+	if err := s.init(); err != nil {
 		return fmt.Errorf("состояние: %w", err)
 	}
-	s.lastID = st.LastID
 	s.deps.Log.Info("старт", "last_id", s.lastID, "interval", s.deps.Interval.String())
 
 	ticker := time.NewTicker(s.deps.Interval)
@@ -86,6 +96,9 @@ func (s *Service) Run(ctx context.Context) error {
 
 // Poll делает один проход: забирает посты новее lastID и обрабатывает их по порядку.
 func (s *Service) Poll(ctx context.Context) error {
+	if err := s.init(); err != nil {
+		return err
+	}
 	limit := 0
 	if !s.started {
 		limit = s.deps.Backfill
@@ -135,6 +148,13 @@ func (s *Service) handle(ctx context.Context, batch []Post) {
 		return
 	}
 
+	// Повтор проверяем до LLM: тот же текст уже пересылали — не платим и не шлём.
+	hash := textHash(text)
+	if s.isRepeat(hash) {
+		s.deps.Log.Info("повтор", "ids", ids)
+		return
+	}
+
 	verdict, err := s.deps.Judge.Evaluate(ctx, text)
 	if err != nil {
 		s.deps.Log.Error("LLM", "ids", ids, "err", err)
@@ -148,7 +168,69 @@ func (s *Service) handle(ctx context.Context, batch []Post) {
 		s.deps.Log.Error("форвард", "ids", ids, "err", err)
 		return
 	}
+	s.remember(hash)
 	s.deps.Log.Info("переслано", "ids", ids, "reason", verdict.Reason)
+}
+
+// init один раз читает состояние прошлого запуска; Poll и Run зовут его лениво.
+func (s *Service) init() error {
+	if s.ready {
+		return nil
+	}
+	st, err := s.deps.Store.Load()
+	if err != nil {
+		return err
+	}
+	s.lastID = st.LastID
+	s.loadSeen()
+	s.ready = true
+	return nil
+}
+
+func (s *Service) loadSeen() {
+	if s.deps.DedupSize <= 0 || s.deps.Seen == nil {
+		return
+	}
+	hashes, err := s.deps.Seen.Load()
+	if err != nil {
+		// Битые хеши повторов не повод не работать: начинаем с пустого кольца.
+		s.deps.Log.Warn("хеши повторов", "err", err)
+		return
+	}
+	s.seen = hashes
+	s.trimSeen()
+}
+
+// isRepeat сообщает, что этот текст уже пересылали в пределах кольца.
+func (s *Service) isRepeat(hash uint64) bool {
+	return s.deps.DedupSize > 0 && slices.Contains(s.seen, hash)
+}
+
+// remember кладёт хеш в кольцо и сохраняет его на диск.
+func (s *Service) remember(hash uint64) {
+	if s.deps.DedupSize <= 0 || s.deps.Seen == nil {
+		return
+	}
+	s.seen = append(s.seen, hash)
+	s.trimSeen()
+	if err := s.deps.Seen.Save(s.seen); err != nil {
+		s.deps.Log.Error("сохранение повторов", "err", err)
+	}
+}
+
+// trimSeen вытесняет самые старые хеши, держа кольцо в пределах DedupSize.
+func (s *Service) trimSeen() {
+	if n := s.deps.DedupSize; n > 0 && len(s.seen) > n {
+		s.seen = s.seen[:copy(s.seen, s.seen[len(s.seen)-n:])]
+	}
+}
+
+// textHash — отпечаток текста без регистра и различий в пробелах: «Сдам  1к»
+// и «сдам 1к» дают один хеш.
+func textHash(text string) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(strings.Join(strings.Fields(strings.ToLower(text)), " ")))
+	return h.Sum64()
 }
 
 func (s *Service) advance(id int) {

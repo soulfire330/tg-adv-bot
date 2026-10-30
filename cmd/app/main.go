@@ -132,17 +132,20 @@ func serve(
 			"recipient", cfg.Recipient,
 			"interval", cfg.Interval.String(),
 			"backfill", cfg.Backfill,
+			"dedup", cfg.DedupSize,
 		)
 
 		pipeline := service.New(service.Deps{
-			Source:   tg.NewSource(api, channel, log),
-			Judge:    llm,
-			Forward:  tg.NewForwarder(api, channel, recipient),
-			Store:    state.New(cfg.StatePath()),
-			Keywords: keywords,
-			Backfill: cfg.Backfill,
-			Interval: cfg.Interval,
-			Log:      log,
+			Source:    tg.NewSource(api, channel, log),
+			Judge:     llm,
+			Forward:   tg.NewForwarder(api, channel, recipient),
+			Store:     state.New(cfg.StatePath()),
+			Seen:      state.NewSeen(cfg.DedupPath()),
+			Keywords:  keywords,
+			Backfill:  cfg.Backfill,
+			DedupSize: cfg.DedupSize,
+			Interval:  cfg.Interval,
+			Log:       log,
 		})
 		return pipeline.Run(ctx)
 	})

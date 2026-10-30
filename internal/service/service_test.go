@@ -66,6 +66,19 @@ func (f *fakeStore) Save(st state.State) error {
 	return nil
 }
 
+type fakeSeen struct {
+	loaded []uint64
+	saved  [][]uint64
+}
+
+func (f *fakeSeen) Load() ([]uint64, error) { return f.loaded, nil }
+
+func (f *fakeSeen) Save(hashes []uint64) error {
+	f.loaded = slices.Clone(hashes)
+	f.saved = append(f.saved, slices.Clone(hashes))
+	return nil
+}
+
 func newService(deps Deps) *Service {
 	if deps.Log == nil {
 		deps.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -273,6 +286,116 @@ func TestBackfillLimitOnlyOnFirstPoll(t *testing.T) {
 	want := []int{3, 0}
 	if !slices.Equal(source.limits, want) {
 		t.Errorf("limits = %v, want %v", source.limits, want)
+	}
+}
+
+func TestPollSkipsRepeatedText(t *testing.T) {
+	llm := &fakeJudge{verdict: judge.Verdict{Matches: true}}
+	forwarder := &fakeForwarder{}
+	seen := &fakeSeen{}
+	source := &fakeSource{posts: []Post{
+		{ID: 50, Text: "Сдам  1к квартиру"},
+		{ID: 51, Text: "сдам 1к квартиру"},
+	}}
+
+	svc := newService(Deps{Source: source, Judge: llm, Forward: forwarder, Store: &fakeStore{},
+		Seen: seen, DedupSize: 100})
+	if err := svc.Poll(t.Context()); err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+
+	if len(llm.texts) != 1 {
+		t.Errorf("LLM вызван %d раз, want 1", len(llm.texts))
+	}
+	if len(forwarder.batches) != 1 || !slices.Equal(forwarder.batches[0], []int{50}) {
+		t.Errorf("форварды = %v, want только [50]", forwarder.batches)
+	}
+	if len(seen.saved) != 1 || len(seen.saved[0]) != 1 {
+		t.Errorf("сохранённые хеши = %v, want один", seen.saved)
+	}
+}
+
+func TestPollSkipsRepeatFromPreviousRun(t *testing.T) {
+	llm := &fakeJudge{verdict: judge.Verdict{Matches: true}}
+	forwarder := &fakeForwarder{}
+	store := &fakeStore{}
+	seen := &fakeSeen{loaded: []uint64{textHash("сдам 1к квартиру")}}
+	source := &fakeSource{posts: []Post{{ID: 60, Text: "Сдам 1к квартиру"}}}
+
+	svc := newService(Deps{Source: source, Judge: llm, Forward: forwarder, Store: store,
+		Seen: seen, DedupSize: 100})
+	if err := svc.Poll(t.Context()); err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+
+	if len(llm.texts) != 0 {
+		t.Errorf("LLM не должен вызываться: %q", llm.texts)
+	}
+	if len(forwarder.batches) != 0 {
+		t.Errorf("форвардов = %d, want 0", len(forwarder.batches))
+	}
+	if lastID := lastSaved(t, store); lastID != 60 {
+		t.Errorf("state.LastID = %d, want 60", lastID)
+	}
+}
+
+func TestPollDoesNotRememberFailedForward(t *testing.T) {
+	llm := &fakeJudge{verdict: judge.Verdict{Matches: true}}
+	forwarder := &fakeForwarder{err: errors.New("FLOOD_WAIT")}
+	seen := &fakeSeen{}
+	source := &fakeSource{posts: []Post{{ID: 70, Text: "сдам гараж"}}}
+
+	svc := newService(Deps{Source: source, Judge: llm, Forward: forwarder, Store: &fakeStore{},
+		Seen: seen, DedupSize: 100})
+	if err := svc.Poll(t.Context()); err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+
+	if len(seen.saved) != 0 {
+		t.Errorf("хеши сохранены после провала форварда: %v", seen.saved)
+	}
+}
+
+func TestPollForgetsBeyondDedupSize(t *testing.T) {
+	llm := &fakeJudge{verdict: judge.Verdict{Matches: true}}
+	forwarder := &fakeForwarder{}
+	source := &fakeSource{posts: []Post{
+		{ID: 80, Text: "сдам стол"},
+		{ID: 81, Text: "сдам стул"},
+		{ID: 82, Text: "сдам стол"},
+	}}
+
+	svc := newService(Deps{Source: source, Judge: llm, Forward: forwarder, Store: &fakeStore{},
+		Seen: &fakeSeen{}, DedupSize: 1})
+	if err := svc.Poll(t.Context()); err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+
+	// Кольцо на один хеш: первый текст вытеснён вторым — третий пост проходит.
+	if len(forwarder.batches) != 3 {
+		t.Errorf("форвардов = %d, want 3: %v", len(forwarder.batches), forwarder.batches)
+	}
+}
+
+func TestPollWithDedupDisabledForwardsRepeats(t *testing.T) {
+	llm := &fakeJudge{verdict: judge.Verdict{Matches: true}}
+	forwarder := &fakeForwarder{}
+	seen := &fakeSeen{}
+	source := &fakeSource{posts: []Post{
+		{ID: 90, Text: "сдам велосипед"},
+		{ID: 91, Text: "сдам велосипед"},
+	}}
+
+	svc := newService(Deps{Source: source, Judge: llm, Forward: forwarder, Store: &fakeStore{}, Seen: seen})
+	if err := svc.Poll(t.Context()); err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+
+	if len(forwarder.batches) != 2 {
+		t.Errorf("форвардов = %d, want 2", len(forwarder.batches))
+	}
+	if len(seen.saved) != 0 {
+		t.Errorf("хеши сохранены при DedupSize=0: %v", seen.saved)
 	}
 }
 
